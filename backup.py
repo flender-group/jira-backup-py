@@ -8,6 +8,7 @@ import boto3
 from boto3.s3.transfer import TransferConfig
 from google.cloud import storage
 from azure.storage.blob import BlobServiceClient
+from azure.identity import DefaultAzureCredential
 import wizard
 import platform
 import subprocess
@@ -152,12 +153,18 @@ class Atlassian:
             blob_service_client = BlobServiceClient.from_connection_string(
                 self.config['UPLOAD_TO_AZURE']['AZURE_CONNECTION_STRING']
             )
-        else:
+        elif self.config['UPLOAD_TO_AZURE']['AZURE_ACCOUNT_KEY']:
             account_url = f"https://{self.config['UPLOAD_TO_AZURE']['AZURE_ACCOUNT_NAME']}.blob.core.windows.net"
             blob_service_client = BlobServiceClient(
                 account_url=account_url,
                 credential=self.config['UPLOAD_TO_AZURE']['AZURE_ACCOUNT_KEY']
             )
+        elif self.config['UPLOAD_TO_AZURE']['AZURE_MANAGED_SYSTEM_IDENTITY']:
+            account_url = f"https://{self.config['UPLOAD_TO_AZURE']['AZURE_ACCOUNT_NAME']}.blob.core.windows.net"
+            default_credential = DefaultAzureCredential()
+            blob_service_client = BlobServiceClient(account_url, credential=default_credential)
+        else:
+            raise Exception('Unsupported authentication configuration')
         
         container_name = self.config['UPLOAD_TO_AZURE']['AZURE_CONTAINER']
         

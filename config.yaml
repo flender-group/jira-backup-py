@@ -1,4 +1,4 @@
---- 
+---
 HOST_URL: "something.atlassian.net"
 USER_EMAIL: "email address for the Atlassian account you're using to create the token (user.name@company.com)"
 API_TOKEN: "token ID generated at https://id.atlassian.com/manage/api-tokens"
@@ -23,3 +23,4 @@ UPLOAD_TO_AZURE:
     AZURE_DIR: "Azure directory for upload (example Atlassian/)"
     AZURE_CONNECTION_STRING: "Azure storage connection string (optional if using account key)"
     AZURE_ACCOUNT_KEY: "Azure storage account key (optional if using connection string)"
+    AZURE_MANAGED_SYSTEM_IDENTITY: "A managed system identity has access to the storage account - true / false"

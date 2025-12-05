@@ -82,6 +82,8 @@ UPLOAD_TO_AZURE:
   AZURE_CONNECTION_STRING: "DefaultEndpointsProtocol=https;AccountName=..."
   # OR use AZURE_ACCOUNT_KEY instead of connection string
   # AZURE_ACCOUNT_KEY: "your-account-key"
+  # OR use AZURE_MANAGED_SYSTEM_IDENTITY if you have a managed system identity
+  # AZURE_MANAGED_SYSTEM_IDENTITY: true
 ```
 
 ### Configuration Wizard
