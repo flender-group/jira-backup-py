@@ -279,6 +279,7 @@ def setup_windows_task(script_path, script_dir, frequency_days, time_hour, time_
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-C', type=str, dest='config_file', default='', help='path to config file')
+    parser.add_argument('-d', type=str, dest='backup_url', default='', help='URL to download into the storage configuration')
     parser.add_argument('-w', action='store_true', dest='wizard', help='activate config wizard')
     parser.add_argument('-c', action='store_true', dest='confluence', help='activate confluence backup')
     parser.add_argument('-j', action='store_true', dest='jira', help='activate jira backup')
@@ -321,10 +322,13 @@ if __name__ == '__main__':
     if config['HOST_URL'] == 'something.atlassian.net':
         raise ValueError('You forgot to edit config.yaml or to run the backup script with "-w" flag')
 
-    print('-> Starting backup; include attachments: {}'.format(config['INCLUDE_ATTACHMENTS']))
     atlass = Atlassian(config)
-    if args.confluence: backup_url = atlass.create_confluence_backup()
-    else: backup_url = atlass.create_jira_backup()
+    if not args.backup_url:
+        print('-> Starting backup; include attachments: {}'.format(config['INCLUDE_ATTACHMENTS']))
+        if args.confluence: backup_url = atlass.create_confluence_backup()
+        else: backup_url = atlass.create_jira_backup()
+    else:
+        backup_url = args.backup_url
 
     print('-> Backup URL: {}'.format(backup_url))
     file_name = '{timestemp}_{uuid}.zip'.format(

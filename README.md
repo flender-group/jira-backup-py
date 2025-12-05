@@ -108,6 +108,9 @@ python backup.py -c
 
 # Run configuration wizard
 python backup.py -w
+
+# Download existing backup
+python backup.py -d <URL>
 ```
 
 ### Automated Scheduling
@@ -133,6 +136,7 @@ This will create:
 
 | Option | Description |
 |--------|-------------|
+| `-d, --download` | Download a known backup URL into the storage |
 | `-j, --jira` | Backup Jira (default if no service specified) |
 | `-c, --confluence` | Backup Confluence |
 | `-w, --wizard` | Run configuration wizard |
