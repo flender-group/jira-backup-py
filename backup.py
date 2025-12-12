@@ -4,9 +4,9 @@ import time
 import os
 import argparse
 import requests
-import boto3
-from boto3.s3.transfer import TransferConfig
-from google.cloud import storage
+# import boto3
+# from boto3.s3.transfer import TransferConfig
+# from google.cloud import storage
 from azure.storage.blob import BlobServiceClient
 from azure.identity import DefaultAzureCredential
 import wizard
@@ -14,8 +14,6 @@ import platform
 import subprocess
 import sys
 from app_logger import get_logger
-
-logger = get_logger(__name__)
 
 def read_config(path=''):
     if path == '':
@@ -96,70 +94,70 @@ class Atlassian:
                     file_.write(chunk)
         print(file_path)
 
-    def stream_to_s3(self, url, remote_filename):
-        print('-> Streaming to S3')
+    # def stream_to_s3(self, url, remote_filename):
+    #     print('-> Streaming to S3')
 
-        if self.config['UPLOAD_TO_S3']['AWS_ACCESS_KEY'] == '':
-            s3_client = boto3.client('s3')
-        else:
-            s3_client = boto3.client(
-                's3',
-                aws_access_key_id=self.config['UPLOAD_TO_S3']['AWS_ACCESS_KEY'],
-                aws_secret_access_key=self.config['UPLOAD_TO_S3']['AWS_SECRET_KEY'],
-                region_name=self.config['UPLOAD_TO_S3']['AWS_REGION'],
-                endpoint_url=self.config['UPLOAD_TO_S3']['AWS_ENDPOINT_URL'],
-                use_ssl=self.config['UPLOAD_TO_S3']['AWS_IS_SECURE']
-            )
+    #     if self.config['UPLOAD_TO_S3']['AWS_ACCESS_KEY'] == '':
+    #         s3_client = boto3.client('s3')
+    #     else:
+    #         s3_client = boto3.client(
+    #             's3',
+    #             aws_access_key_id=self.config['UPLOAD_TO_S3']['AWS_ACCESS_KEY'],
+    #             aws_secret_access_key=self.config['UPLOAD_TO_S3']['AWS_SECRET_KEY'],
+    #             region_name=self.config['UPLOAD_TO_S3']['AWS_REGION'],
+    #             endpoint_url=self.config['UPLOAD_TO_S3']['AWS_ENDPOINT_URL'],
+    #             use_ssl=self.config['UPLOAD_TO_S3']['AWS_IS_SECURE']
+    #         )
 
-        bucket_name = self.config['UPLOAD_TO_S3']['S3_BUCKET']
-        r = self.session.get(url, stream=True)
-        if r.status_code == 200:
-            key = "{s3_bucket}{s3_filename}".format(
-                s3_bucket=self.config['UPLOAD_TO_S3']['S3_DIR'],
-                s3_filename=remote_filename
-            )
+    #     bucket_name = self.config['UPLOAD_TO_S3']['S3_BUCKET']
+    #     r = self.session.get(url, stream=True)
+    #     if r.status_code == 200:
+    #         key = "{s3_bucket}{s3_filename}".format(
+    #             s3_bucket=self.config['UPLOAD_TO_S3']['S3_DIR'],
+    #             s3_filename=remote_filename
+    #         )
 
-            content_length = int(r.headers.get('Content-Length', 0))
+    #         content_length = int(r.headers.get('Content-Length', 0))
 
-            config = TransferConfig(
-                multipart_threshold=content_length + 1,
-                max_concurrency=1,
-                use_threads=False
-            )
+    #         config = TransferConfig(
+    #             multipart_threshold=content_length + 1,
+    #             max_concurrency=1,
+    #             use_threads=False
+    #         )
 
-            s3_client.upload_fileobj(
-                Fileobj=r.raw,
-                Bucket=bucket_name,
-                Key=key,
-                ExtraArgs={'ContentType': r.headers['content-type']},
-                Config=config
-            )
+    #         s3_client.upload_fileobj(
+    #             Fileobj=r.raw,
+    #             Bucket=bucket_name,
+    #             Key=key,
+    #             ExtraArgs={'ContentType': r.headers['content-type']},
+    #             Config=config
+    #         )
 
-    def stream_to_gcs(self, url, remote_filename):
-        print('-> Streaming to GCS')
+    # def stream_to_gcs(self, url, remote_filename):
+    #     print('-> Streaming to GCS')
         
-        if self.config['UPLOAD_TO_GCP']['GCP_SERVICE_ACCOUNT_KEY']:
-            client = storage.Client.from_service_account_json(
-                self.config['UPLOAD_TO_GCP']['GCP_SERVICE_ACCOUNT_KEY'],
-                project=self.config['UPLOAD_TO_GCP']['GCP_PROJECT_ID']
-            )
-        else:
-            client = storage.Client(project=self.config['UPLOAD_TO_GCP']['GCP_PROJECT_ID'])
+    #     if self.config['UPLOAD_TO_GCP']['GCP_SERVICE_ACCOUNT_KEY']:
+    #         client = storage.Client.from_service_account_json(
+    #             self.config['UPLOAD_TO_GCP']['GCP_SERVICE_ACCOUNT_KEY'],
+    #             project=self.config['UPLOAD_TO_GCP']['GCP_PROJECT_ID']
+    #         )
+    #     else:
+    #         client = storage.Client(project=self.config['UPLOAD_TO_GCP']['GCP_PROJECT_ID'])
         
-        bucket_name = self.config['UPLOAD_TO_GCP']['GCS_BUCKET']
-        bucket = client.bucket(bucket_name)
+    #     bucket_name = self.config['UPLOAD_TO_GCP']['GCS_BUCKET']
+    #     bucket = client.bucket(bucket_name)
         
-        r = self.session.get(url, stream=True)
-        if r.status_code == 200:
-            blob_name = "{gcs_dir}{filename}".format(
-                gcs_dir=self.config['UPLOAD_TO_GCP']['GCS_DIR'],
-                filename=remote_filename
-            )
+    #     r = self.session.get(url, stream=True)
+    #     if r.status_code == 200:
+    #         blob_name = "{gcs_dir}{filename}".format(
+    #             gcs_dir=self.config['UPLOAD_TO_GCP']['GCS_DIR'],
+    #             filename=remote_filename
+    #         )
             
-            blob = bucket.blob(blob_name)
-            blob.content_type = r.headers.get('content-type', 'application/zip')
+    #         blob = bucket.blob(blob_name)
+    #         blob.content_type = r.headers.get('content-type', 'application/zip')
             
-            blob.upload_from_file(r.raw, content_type=blob.content_type)
+    #         blob.upload_from_file(r.raw, content_type=blob.content_type)
 
     def stream_to_azure(self, url, remote_filename):
         print('-> Streaming to Azure Blob Storage')
@@ -316,9 +314,9 @@ if __name__ == '__main__':
     # print('debug command-line: {}'.format(args))
 
     if args.verbose:
-        logging.basicConfig(level=logging.DEBUG)
+        logging = get_logger(name="backup", level=10)
     else:
-        logging.basicConfig(level=logging.INFO)
+        logging = get_logger(name="backup", level=20)
     
     if args.wizard:
         wizard.create_config()
@@ -352,6 +350,7 @@ if __name__ == '__main__':
     config = read_config(args.config_file)
 
     if config['HOST_URL'] == 'something.atlassian.net':
+        logging.error('-> Configuration file not set up properly')
         raise ValueError('You forgot to edit config.yaml or to run the backup script with "-w" flag')
 
     atlass = Atlassian(config)
@@ -375,13 +374,13 @@ if __name__ == '__main__':
         atlass.download_file(backup_url, file_name)
         logging.debug('-> Downloaded backup file locally: {}'.format(file_name))
 
-    if 'UPLOAD_TO_S3' in config and config['UPLOAD_TO_S3'].get('S3_BUCKET', '') != '':
-        atlass.stream_to_s3(backup_url, file_name)
-        logging.debug('-> Uploaded to S3 bucket: {}'.format(config['UPLOAD_TO_S3'].get('S3_BUCKET', '')))
+    # if 'UPLOAD_TO_S3' in config and config['UPLOAD_TO_S3'].get('S3_BUCKET', '') != '':
+    #     atlass.stream_to_s3(backup_url, file_name)
+    #     logging.debug('-> Uploaded to S3 bucket: {}'.format(config['UPLOAD_TO_S3'].get('S3_BUCKET', '')))
     
-    if 'UPLOAD_TO_GCP' in config and config['UPLOAD_TO_GCP'].get('GCS_BUCKET', '') != '':
-        atlass.stream_to_gcs(backup_url, file_name)
-        logging.debug('-> Uploaded to GCS bucket: {}'.format(config['UPLOAD_TO_GCP'].get('GCS_BUCKET', '')))
+    # if 'UPLOAD_TO_GCP' in config and config['UPLOAD_TO_GCP'].get('GCS_BUCKET', '') != '':
+    #     atlass.stream_to_gcs(backup_url, file_name)
+    #     logging.debug('-> Uploaded to GCS bucket: {}'.format(config['UPLOAD_TO_GCP'].get('GCS_BUCKET', '')))
     
     if 'UPLOAD_TO_AZURE' in config and config['UPLOAD_TO_AZURE'].get('AZURE_CONTAINER', '') != '':
         atlass.stream_to_azure(backup_url, file_name)
