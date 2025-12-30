@@ -321,7 +321,7 @@ if __name__ == '__main__':
     parser.add_argument('--schedule-days', type=int, default=4, help='frequency in days for scheduled backup (default: 4)')
     parser.add_argument('--schedule-time', type=str, default='10:00', help='time for scheduled backup in HH:MM format (default: 10:00)')
     parser.add_argument('--schedule-service', type=str, choices=['jira', 'confluence'], default='jira', help='service type for scheduled backup (default: jira)')
-    parser.add_argument('--kv-url', type=str, help='KeyVault URL for API Token Secret')
+    parser.add_argument('--kv-url', type=str, help='KeyVault URL (Full http URL) for API Token Secret')
     parser.add_argument('--kv-secret-name', type=str, default='api-token', help='KeyVault secret name for API Token')
     parser.add_argument('--verbose', action='store_true', help='enable verbose logging')
     args = parser.parse_args()
