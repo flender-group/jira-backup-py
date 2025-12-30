@@ -14,6 +14,9 @@ import platform
 import subprocess
 import sys
 from app_logger import get_logger
+from azure.identity import DefaultAzureCredential
+from azure.keyvault.secrets import SecretClient
+from azure.core.exceptions import AzureError
 
 def read_config(path=''):
     if path == '':
@@ -22,10 +25,6 @@ def read_config(path=''):
         return yaml.full_load(config_file)
 
 def get_secret_from_keyvault(kv_url, secret_name='api-token'):
-    from azure.identity import DefaultAzureCredential
-    from azure.keyvault.secrets import SecretClient
-    from azure.exceptions import AzureError
-
     credential = DefaultAzureCredential()
     try:
         secret_client = SecretClient(vault_url=kv_url, credential=credential)
