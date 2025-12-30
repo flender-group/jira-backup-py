@@ -4,3 +4,4 @@ azure-storage-blob==12.22.0
 PyYAML==6.0.2
 Requests==2.32.3
 azure-identity==1.25.1
+azure-keyvault-secrets==4.7.0

@@ -29,3 +29,4 @@ backups/*
 !backups/.gitkeep 
 wizard.pyc
 __pycache__/
+*.log
