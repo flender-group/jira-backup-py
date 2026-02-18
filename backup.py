@@ -8,13 +8,12 @@ import boto3
 from boto3.s3.transfer import TransferConfig
 from google.cloud import storage
 from azure.storage.blob import BlobServiceClient
-from azure.identity import DefaultAzureCredential
 import wizard
 import platform
 import subprocess
 import sys
 from app_logger import get_logger
-from azure.identity import DefaultAzureCredential
+from azure.identity import DefaultAzureCredential, ManagedIdentityCredential
 from azure.keyvault.secrets import SecretClient
 from azure.core.exceptions import AzureError
 
@@ -24,10 +23,17 @@ def read_config(path=''):
     with open(path, 'r') as config_file:
         return yaml.full_load(config_file)
 
+def az_login():
+    azure_client_id = os.getenv("AZURE_CLIENT_ID")
+    if azure_client_id:
+        credential = ManagedIdentityCredential(client_id=azure_client_id)
+    else:
+        credential = DefaultAzureCredential()
+    return credential
+
 def get_secret_from_keyvault(kv_url, secret_name='api-token'):
-    credential = DefaultAzureCredential()
     try:
-        secret_client = SecretClient(vault_url=kv_url, credential=credential)
+        secret_client = SecretClient(vault_url=kv_url, credential=az_login())
         secret = secret_client.get_secret(secret_name)
         return secret.value
     except AzureError as e:
@@ -187,8 +193,7 @@ class Atlassian:
             )
         elif self.config['UPLOAD_TO_AZURE']['AZURE_MANAGED_SYSTEM_IDENTITY']:
             account_url = f"https://{self.config['UPLOAD_TO_AZURE']['AZURE_ACCOUNT_NAME']}.blob.core.windows.net"
-            default_credential = DefaultAzureCredential()
-            blob_service_client = BlobServiceClient(account_url, credential=default_credential)
+            blob_service_client = BlobServiceClient(account_url, credential=az_login())
         else:
             logging.error('-> No valid Azure authentication method found in configuration')
             raise Exception('Unsupported authentication configuration')
