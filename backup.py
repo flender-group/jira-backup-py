@@ -237,7 +237,7 @@ class Atlassian:
             )
             logging.debug('Successfully uploaded blob {} to Azure storage container: {}'.format(blob_name, container_name))
         else:
-            logging.error('Unexpected response from URL, status code: {}'.format(r.status_code))
+            logging.error('Failed to stream backup to azure, status code: {}'.format(r.status_code))
             raise Exception('Unexpected response from URL')
 
 
