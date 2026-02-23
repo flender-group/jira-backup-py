@@ -40,6 +40,20 @@ def get_secret_from_keyvault(kv_url, secret_name='api-token'):
         logging.error(f"Error retrieving secret from KeyVault: {e}")
         raise e
 
+def retry_with_exponential_backoff(func, delay=300, max_retries=5, backoff_factor=2):
+    for attempt in range(max_retries):
+        try:
+            return func()
+        except Exception as e:
+            logging.warning(f"Attempt {attempt + 1} failed with error: {e}")
+            if attempt < max_retries - 1:
+                logging.info(f"Retrying in {delay} seconds...")
+                time.sleep(delay)
+                delay *= backoff_factor
+            else:
+                logging.error("Max retries reached. Operation failed.")
+                return func()
+
 class Atlassian:
     def __init__(self, config):
         self.config = config
@@ -53,13 +67,14 @@ class Atlassian:
         self.wait = 10
 
     def create_confluence_backup(self):
-        backup = self.session.post(self.start_confluence_backup, data=json.dumps(self.payload))
+        backup = retry_with_exponential_backoff(lambda: self.session.post(self.start_confluence_backup, data=json.dumps(self.payload)))
         if backup.status_code != 200:
-            logging.debug('-> Failed to create Confluence backup: {}'.format(backup.text))
-            raise Exception(backup, backup.text)
+            logging.debug('Failed to create Confluence backup: {}'.format(backup.text))
+            raise Exception(backup, backup.status_code, backup.text)
         else:
-            print('-> Backup process successfully started')
-            logging.debug('-> Confluence backup process started')
+            task_id = json.loads(backup.text)['taskId']
+            logging.debug('Confluence backup task started with taskId={}'.format(task_id))
+            print('Confluence backup process successfully started: taskId={}'.format(task_id))
             confluence_backup_status = 'https://{}/wiki/rest/obm/1.0/getprogress'.format(self.config['HOST_URL'])
             time.sleep(self.wait)
             while 'fileName' not in self.backup_status.keys():
@@ -67,23 +82,23 @@ class Atlassian:
                 print('Current status: {progress}; {description}'.format(
                     progress=self.backup_status['alternativePercentage'],
                     description=self.backup_status['currentStatus']))
-                logging.debug('-> Current Confluence backup status: {progress}; {description}'.format(
+                logging.debug('Current Confluence backup status: {progress}; {description}'.format(
                     progress=self.backup_status['alternativePercentage'],
                     description=self.backup_status['currentStatus']))
-                logging.info('-> Waiting {} seconds for next status check...'.format(self.wait))
+                logging.info('Waiting {} seconds for next status check...'.format(self.wait))
                 time.sleep(self.wait)
             return 'https://{url}/wiki/download/{file_name}'.format(
                 url=self.config['HOST_URL'], file_name=self.backup_status['fileName'])
 
     def create_jira_backup(self):
-        backup = self.session.post(self.start_jira_backup, data=json.dumps(self.payload))
+        backup = retry_with_exponential_backoff(lambda: self.session.post(self.start_jira_backup, data=json.dumps(self.payload)))
         if backup.status_code != 200:
-            logging.debug('-> Failed to create Jira backup: {}'.format(backup.text))
-            raise Exception(backup, backup.text)
+            logging.debug('Failed to create Jira backup: {}'.format(backup.text))
+            raise Exception(backup, backup.status_code, backup.text)
         else:
             task_id = json.loads(backup.text)['taskId']
-            logging.debug('-> Jira backup task started with taskId={}'.format(task_id))
-            print('-> Backup process successfully started: taskId={}'.format(task_id))
+            logging.debug('Jira backup task started with taskId={}'.format(task_id))
+            print('Backup process successfully started: taskId={}'.format(task_id))
             jira_backup_status = 'https://{jira_host}/rest/backup/1/export/getProgress?taskId={task_id}'.format(
                 jira_host=self.config['HOST_URL'], task_id=task_id)
             time.sleep(self.wait)
@@ -93,17 +108,17 @@ class Atlassian:
                     status=self.backup_status['status'],
                     progress=self.backup_status['progress'],
                     description=self.backup_status['description']))
-                logging.debug('-> Current Jira backup status: {status} {progress}; {description}'.format(
+                logging.debug('Current Jira backup status: {status} {progress}; {description}'.format(
                     status=self.backup_status['status'],
                     progress=self.backup_status['progress'],
                     description=self.backup_status['description']))
-                logging.info('-> Waiting {} seconds for next status check...'.format(self.wait))
+                logging.info('Waiting {} seconds for next status check...'.format(self.wait))
                 time.sleep(self.wait)
             return '{prefix}/{result_id}'.format(
                 prefix='https://' + self.config['HOST_URL'] + '/plugins/servlet', result_id=self.backup_status['result'])
 
     def download_file(self, url, local_filename):
-        print('-> Downloading file from URL: {}'.format(url))
+        print('Downloading file from URL: {}'.format(url))
         r = self.session.get(url, stream=True)
         file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'backups', local_filename)
         with open(file_path, 'wb') as file_:
@@ -113,7 +128,7 @@ class Atlassian:
         print(file_path)
 
     def stream_to_s3(self, url, remote_filename):
-        print('-> Streaming to S3')
+        print('Streaming to S3')
 
         if self.config['UPLOAD_TO_S3']['AWS_ACCESS_KEY'] == '':
             s3_client = boto3.client('s3')
@@ -152,7 +167,7 @@ class Atlassian:
             )
 
     def stream_to_gcs(self, url, remote_filename):
-        print('-> Streaming to GCS')
+        print('Streaming to GCS')
         
         if self.config['UPLOAD_TO_GCP']['GCP_SERVICE_ACCOUNT_KEY']:
             client = storage.Client.from_service_account_json(
@@ -178,8 +193,8 @@ class Atlassian:
             blob.upload_from_file(r.raw, content_type=blob.content_type)
 
     def stream_to_azure(self, url, remote_filename):
-        print('-> Streaming to Azure Blob Storage')
-        logging.debug('-> Azure upload configuration: {}'.format(self.config['UPLOAD_TO_AZURE']))
+        print(f'Streaming Backup {remote_filename} to Azure Blob Storage')
+        logging.debug('Azure upload configuration: {}'.format(self.config['UPLOAD_TO_AZURE']))
         
         if self.config['UPLOAD_TO_AZURE']['AZURE_CONNECTION_STRING']:
             blob_service_client = BlobServiceClient.from_connection_string(
@@ -195,15 +210,15 @@ class Atlassian:
             account_url = f"https://{self.config['UPLOAD_TO_AZURE']['AZURE_ACCOUNT_NAME']}.blob.core.windows.net"
             blob_service_client = BlobServiceClient(account_url, credential=az_login())
         else:
-            logging.error('-> No valid Azure authentication method found in configuration')
+            logging.error('No valid Azure authentication method found in configuration')
             raise Exception('Unsupported authentication configuration')
         
         container_name = self.config['UPLOAD_TO_AZURE']['AZURE_CONTAINER']
-        logging.debug('-> Using Azure container: {}'.format(container_name))
+        logging.debug('Using Azure container: {}'.format(container_name))
         
         r = self.session.get(url, stream=True)
         if r.status_code == 200:
-            logging.debug('-> Successfully initiated download stream from URL')
+            logging.debug('Successfully initiated download stream from URL')
             blob_name = "{azure_dir}{filename}".format(
                 azure_dir=self.config['UPLOAD_TO_AZURE']['AZURE_DIR'],
                 filename=remote_filename
@@ -213,16 +228,16 @@ class Atlassian:
                 container=container_name,
                 blob=blob_name
             )
-            logging.debug('-> Successfully obtained blob client for Azure blob: {}'.format(blob_name))
+            logging.debug('Successfully obtained blob client for Azure blob: {}'.format(blob_name))
             
             blob_client.upload_blob(
                 r.raw,
                 content_type=r.headers.get('content-type', 'application/zip'),
                 overwrite=True
             )
-            logging.debug('-> Successfully uploaded blob to Azure storage')
+            logging.debug('Successfully uploaded blob {} to Azure storage'.format(blob_name))
         else:
-            logging.error('-> Unexpected response from URL, status code: {}'.format(r.status_code))
+            logging.error('Unexpected response from URL, status code: {}'.format(r.status_code))
             raise Exception('Unexpected response from URL')
 
 
@@ -265,7 +280,7 @@ def setup_cron_task(script_path, script_dir, frequency_days, time_hour, time_min
                 # Check if the next line contains the cron command for this service
                 if i + 1 < len(lines) and service_flag in lines[i + 1]:
                     skip_next = True  # Skip both the comment and the command
-                    print(f"-> Updating existing {service_type} backup schedule...")
+                    print(f"Updating existing {service_type} backup schedule...")
                     continue
             
             updated_lines.append(line)
@@ -277,14 +292,14 @@ def setup_cron_task(script_path, script_dir, frequency_days, time_hour, time_min
         process.communicate(input=new_cron)
         
         if process.returncode == 0:
-            print(f"-> Successfully scheduled {service_type} backup to run every {frequency_days} days at {time_hour:02d}:{time_minute:02d}")
+            print(f"Successfully scheduled {service_type} backup to run every {frequency_days} days at {time_hour:02d}:{time_minute:02d}")
             return True
         else:
-            print("-> Failed to create cron job")
+            print("Failed to create cron job")
             return False
             
     except Exception as e:
-        print(f"-> Error setting up cron job: {e}")
+        print(f"Error setting up cron job: {e}")
         return False
 
 
@@ -306,13 +321,13 @@ def setup_windows_task(script_path, script_dir, frequency_days, time_hour, time_
     try:
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode == 0:
-            print(f"-> Successfully scheduled {service_type} backup to run every {frequency_days} days at {time_hour:02d}:{time_minute:02d}")
+            print(f"Successfully scheduled {service_type} backup to run every {frequency_days} days at {time_hour:02d}:{time_minute:02d}")
             return True
         else:
-            print(f"-> Failed to create scheduled task: {result.stderr}")
+            print(f"Failed to create scheduled task: {result.stderr}")
             return False
     except Exception as e:
-        print(f"-> Error setting up scheduled task: {e}")
+        print(f"Error setting up scheduled task: {e}")
         return False
 
 if __name__ == '__main__':
@@ -355,15 +370,15 @@ if __name__ == '__main__':
                 time_minute=minute,
                 service_type=args.schedule_service
             )
-            print("-> Scheduled task setup completed")
+            print("Scheduled task setup completed")
             exit(0)
         except ValueError as e:
             logging.error(f"Invalid time format: {e}")
-            print(f"-> Error: Invalid time format. Use HH:MM format (e.g., 10:30)")
+            print(f"Error: Invalid time format. Use HH:MM format (e.g., 10:30)")
             exit(1)
         except Exception as e:
             logging.error(f"Error setting up scheduled task: {e}")
-            print(f"-> Error setting up scheduled task: {e}")
+            print(f"Error setting up scheduled task: {e}")
             exit(1)
     
     config = read_config(args.config_file)
@@ -372,45 +387,45 @@ if __name__ == '__main__':
         try:
             api_token = get_secret_from_keyvault(args.kv_url, args.kv_secret_name)
             config['API_TOKEN'] = api_token
-            logging.debug('-> Retrieved API token from KeyVault and set as environment variable')
+            logging.debug('Retrieved API token from KeyVault and set as environment variable')
         except Exception as e:
             logging.error(f"Failed to retrieve API token from KeyVault: {e}")
-            print(f"-> Error: Failed to retrieve API token from KeyVault: {e}")
+            print(f"Error: Failed to retrieve API token from KeyVault: {e}")
             exit(1) 
 
     if config['HOST_URL'] == 'something.atlassian.net':
-        logging.error('-> Configuration file not set up properly')
+        logging.error('Configuration file not set up properly')
         raise ValueError('You forgot to edit config.yaml or to run the backup script with "-w" flag')
 
     atlass = Atlassian(config)
     if not args.backup_url:
-        logging.debug('-> No backup URL provided, initiating backup process')
-        print('-> Starting backup; include attachments: {}'.format(config['INCLUDE_ATTACHMENTS']))
+        logging.debug('No backup URL provided, initiating backup process')
+        print('Starting backup; include attachments: {}'.format(config['INCLUDE_ATTACHMENTS']))
         if args.confluence: 
             backup_url = atlass.create_confluence_backup()
-            logging.debug('-> Confluence backup URL obtained: {}'.format(backup_url))
+            logging.debug('Confluence backup URL obtained: {}'.format(backup_url))
         else: 
             backup_url = atlass.create_jira_backup()
-            logging.debug('-> Jira backup URL obtained: {}'.format(backup_url))
+            logging.debug('Jira backup URL obtained: {}'.format(backup_url))
     else:
         backup_url = args.backup_url
 
-    print('-> Backup URL: {}'.format(backup_url))
+    print('Backup URL: {}'.format(backup_url))
     file_name = '{timestemp}_{uuid}.zip'.format(
         timestemp=time.strftime('%d%m%Y_%H%M'), uuid=backup_url.split('/')[-1].replace('?fileId=', ''))
 
     if config['DOWNLOAD_LOCALLY'] == 'true':
         atlass.download_file(backup_url, file_name)
-        logging.debug('-> Downloaded backup file locally: {}'.format(file_name))
+        logging.debug('Downloaded backup file locally: {}'.format(file_name))
 
     if 'UPLOAD_TO_S3' in config and config['UPLOAD_TO_S3'].get('S3_BUCKET', '') != '':
         atlass.stream_to_s3(backup_url, file_name)
-        logging.debug('-> Uploaded to S3 bucket: {}'.format(config['UPLOAD_TO_S3'].get('S3_BUCKET', '')))
+        logging.debug('Uploaded to S3 bucket: {}'.format(config['UPLOAD_TO_S3'].get('S3_BUCKET', '')))
     
     if 'UPLOAD_TO_GCP' in config and config['UPLOAD_TO_GCP'].get('GCS_BUCKET', '') != '':
         atlass.stream_to_gcs(backup_url, file_name)
-        logging.debug('-> Uploaded to GCS bucket: {}'.format(config['UPLOAD_TO_GCP'].get('GCS_BUCKET', '')))
+        logging.debug('Uploaded to GCS bucket: {}'.format(config['UPLOAD_TO_GCP'].get('GCS_BUCKET', '')))
     
     if 'UPLOAD_TO_AZURE' in config and config['UPLOAD_TO_AZURE'].get('AZURE_CONTAINER', '') != '':
         atlass.stream_to_azure(backup_url, file_name)
-        logging.debug('-> Uploaded to Azure container: {}'.format(config['UPLOAD_TO_AZURE'].get('AZURE_CONTAINER', '')))
+        logging.debug('Uploaded to Azure container: {}'.format(config['UPLOAD_TO_AZURE'].get('AZURE_CONTAINER', '')))

@@ -5,7 +5,7 @@ def get_logger(name: str = "backup", level: int = logging.INFO) -> logging.Logge
     if not logger.handlers:
         handler = logging.FileHandler(f"../logs/{name}.log",encoding='utf-8')
         formatter = logging.Formatter(
-            '%(asctime)s,%(levelname)s,%(module)s,%(filename)s,%(lineno)d,%(message)s',
+            '%(asctime)s,%(levelname)s,%(funcName)s,%(filename)s,%(lineno)d,%(message)s',
             datefmt='%Y-%m-%dT%H:%M:%S%z'
         )
         handler.setFormatter(formatter)
