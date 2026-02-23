@@ -46,13 +46,13 @@ def retry_with_exponential_backoff(func, delay=300, max_retries=5, backoff_facto
         try:
             return func()
         except Exception as e:
-            logging.warning(f"Attempt {attempt + 1} failed with error: {e}")
+            logging.warning(f"Attempt {attempt + 1} failed with error: {e.with_traceback(None)}")
             if attempt < max_retries - 1:
                 logging.info(f"Retrying in {delay} seconds...")
                 time.sleep(delay)
                 delay *= backoff_factor
             else:
-                logging.error("Max retries reached. Operation failed.")
+                logging.error(f"Max retries reached. Operation failed. Error: {e.with_traceback(None)}")
                 return func()
 
 class Atlassian:
@@ -73,9 +73,8 @@ class Atlassian:
             logging.debug('Failed to create Confluence backup with status code {}: {}'.format(backup.status_code, backup.text))
             raise Exception(backup, backup.status_code, backup.text)
         else:
-            task_id = json.loads(backup.text)['taskId']
-            logging.debug('Confluence backup task started with taskId={}'.format(task_id))
-            print('Confluence backup process successfully started: taskId={}'.format(task_id))
+            print('-> Confluence backup process successfully started')
+            logging.debug('-> Confluence backup process started')
             confluence_backup_status = 'https://{}/wiki/rest/obm/1.0/getprogress'.format(self.config['HOST_URL'])
             time.sleep(self.wait)
             while 'fileName' not in self.backup_status.keys():
