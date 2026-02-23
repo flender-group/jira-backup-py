@@ -217,7 +217,7 @@ class Atlassian:
         container_name = self.config['UPLOAD_TO_AZURE']['AZURE_CONTAINER']
         logging.debug('Using Azure container: {}'.format(container_name))
         
-        r = self.session.get(url, stream=True)
+        r = retry_with_exponential_backoff(lambda: self.session.get(url, stream=True))
         if r.status_code == 200:
             logging.debug('Successfully initiated download stream from URL')
             blob_name = "{azure_dir}{filename}".format(
@@ -229,14 +229,14 @@ class Atlassian:
                 container=container_name,
                 blob=blob_name
             )
-            logging.debug('Successfully obtained blob client for Azure blob: {}'.format(blob_name))
+            logging.debug('Successfully obtained blob client for Azure container blob: {},{}'.format(container_name, blob_name))
             
             blob_client.upload_blob(
                 r.raw,
                 content_type=r.headers.get('content-type', 'application/zip'),
                 overwrite=True
             )
-            logging.debug('Successfully uploaded blob {} to Azure storage'.format(blob_name))
+            logging.debug('Successfully uploaded blob {} to Azure storage container: {}'.format(blob_name, container_name))
         else:
             logging.error('Unexpected response from URL, status code: {}'.format(r.status_code))
             raise Exception('Unexpected response from URL')
