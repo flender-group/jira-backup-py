@@ -65,7 +65,7 @@ class Atlassian:
         self.start_confluence_backup = 'https://{}/wiki/rest/obm/1.0/runbackup'.format(self.config['HOST_URL'])
         self.start_jira_backup = 'https://{}/rest/backup/1/export/runbackup'.format(self.config['HOST_URL'])
         self.backup_status = {}
-        self.wait = 10
+        self.wait = 60
 
     def create_confluence_backup(self):
         backup = retry_with_exponential_backoff(lambda: self.session.post(self.start_confluence_backup, data=json.dumps(self.payload)))
@@ -235,7 +235,7 @@ class Atlassian:
                 content_type=r.headers.get('content-type', 'application/zip'),
                 overwrite=True
             )
-            logging.debug('Successfully uploaded blob {} to Azure storage container: {}'.format(blob_name, container_name))
+            logging.info('Successfully uploaded backup blob {} to Azure storage container: {}'.format(blob_name, container_name))
         else:
             logging.error('Failed to stream backup to azure, status code: {}'.format(r.status_code))
             raise Exception('Unexpected response from URL')
@@ -428,4 +428,7 @@ if __name__ == '__main__':
     
     if 'UPLOAD_TO_AZURE' in config and config['UPLOAD_TO_AZURE'].get('AZURE_CONTAINER', '') != '':
         atlass.stream_to_azure(backup_url, file_name)
-        logging.debug('Uploaded to Azure container: {}'.format(config['UPLOAD_TO_AZURE'].get('AZURE_CONTAINER', '')))
+        if args.confluence:
+            logging.debug('Successfully uploaded Confluence backup to Azure container: {}'.format(config['UPLOAD_TO_AZURE'].get('AZURE_CONTAINER', '')))
+        elif args.jira:
+            logging.debug('Successfully uploaded Jira backup to Azure container: {}'.format(config['UPLOAD_TO_AZURE'].get('AZURE_CONTAINER', '')))
