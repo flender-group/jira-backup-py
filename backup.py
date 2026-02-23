@@ -35,6 +35,7 @@ def get_secret_from_keyvault(kv_url, secret_name='api-token'):
     try:
         secret_client = SecretClient(vault_url=kv_url, credential=az_login())
         secret = secret_client.get_secret(secret_name)
+        logging.info(f"Successfully retrieved secret '{secret_name}' from KeyVault")
         return secret.value
     except AzureError as e:
         logging.error(f"Error retrieving secret from KeyVault: {e}")
@@ -69,7 +70,7 @@ class Atlassian:
     def create_confluence_backup(self):
         backup = retry_with_exponential_backoff(lambda: self.session.post(self.start_confluence_backup, data=json.dumps(self.payload)))
         if backup.status_code != 200:
-            logging.debug('Failed to create Confluence backup: {}'.format(backup.text))
+            logging.debug('Failed to create Confluence backup with status code {}: {}'.format(backup.status_code, backup.text))
             raise Exception(backup, backup.status_code, backup.text)
         else:
             task_id = json.loads(backup.text)['taskId']
@@ -93,12 +94,12 @@ class Atlassian:
     def create_jira_backup(self):
         backup = retry_with_exponential_backoff(lambda: self.session.post(self.start_jira_backup, data=json.dumps(self.payload)))
         if backup.status_code != 200:
-            logging.debug('Failed to create Jira backup: {}'.format(backup.text))
+            logging.debug('Failed to create Jira backup with status code {}: {}'.format(backup.status_code, backup.text))
             raise Exception(backup, backup.status_code, backup.text)
         else:
             task_id = json.loads(backup.text)['taskId']
             logging.debug('Jira backup task started with taskId={}'.format(task_id))
-            print('Backup process successfully started: taskId={}'.format(task_id))
+            print('Jira backup process successfully started: taskId={}'.format(task_id))
             jira_backup_status = 'https://{jira_host}/rest/backup/1/export/getProgress?taskId={task_id}'.format(
                 jira_host=self.config['HOST_URL'], task_id=task_id)
             time.sleep(self.wait)
