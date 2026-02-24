@@ -193,7 +193,7 @@ class Atlassian:
             blob.upload_from_file(r.raw, content_type=blob.content_type)
 
     def stream_to_azure(self, url, remote_filename):
-        print(f'Streaming Backup {remote_filename} to Azure Blob Storage')
+        logging.info(f'Streaming Backup {remote_filename} to Azure Blob Storage')
         logging.debug('Azure upload configuration: {}'.format(self.config['UPLOAD_TO_AZURE']))
         
         if self.config['UPLOAD_TO_AZURE']['AZURE_CONNECTION_STRING']:
@@ -216,7 +216,7 @@ class Atlassian:
         container_name = self.config['UPLOAD_TO_AZURE']['AZURE_CONTAINER']
         logging.debug('Using Azure container: {}'.format(container_name))
         
-        r = retry_with_exponential_backoff(lambda: self.session.get(url, stream=True))
+        r = self.session.get(url, stream=True)
         if r.status_code == 200:
             logging.debug('Successfully initiated download stream from URL')
             blob_name = "{azure_dir}{filename}".format(
