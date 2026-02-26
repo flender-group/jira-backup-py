@@ -39,12 +39,14 @@ def get_secret_from_keyvault(kv_url, secret_name='api-token'):
         return secret.value
     except AzureError as e:
         logging.error(f"Error retrieving secret from KeyVault: {e}")
-        raise e
+        sys.exit(1)
 
 def retry_with_exponential_backoff(func, delay=300, max_retries=5, backoff_factor=2):
     for attempt in range(max_retries):
         try:
-            return func()
+            response = func()
+            response.raise_for_status()
+            return response
         except Exception as e:
             logging.warning(f"Attempt {attempt + 1} failed with error: {e.with_traceback(None)}")
             if attempt < max_retries - 1:
@@ -53,7 +55,7 @@ def retry_with_exponential_backoff(func, delay=300, max_retries=5, backoff_facto
                 delay *= backoff_factor
             else:
                 logging.error(f"Max retries reached. Operation failed. Error: {e.with_traceback(None)}")
-                return func()
+                sys.exit(1)
 
 class Atlassian:
     def __init__(self, config):
@@ -69,53 +71,44 @@ class Atlassian:
 
     def create_confluence_backup(self):
         backup = retry_with_exponential_backoff(lambda: self.session.post(self.start_confluence_backup, data=json.dumps(self.payload)))
-        if backup.status_code != 200:
-            logging.debug('Failed to create Confluence backup with status code {}: {}'.format(backup.status_code, backup.text))
-            raise Exception(backup, backup.status_code, backup.text)
-        else:
-            print('-> Confluence backup process successfully started')
-            logging.debug('-> Confluence backup process started')
-            confluence_backup_status = 'https://{}/wiki/rest/obm/1.0/getprogress'.format(self.config['HOST_URL'])
+        logging.info('Confluence backup process successfully started')
+        confluence_backup_status = 'https://{}/wiki/rest/obm/1.0/getprogress'.format(self.config['HOST_URL'])
+        time.sleep(self.wait)
+        while 'fileName' not in self.backup_status.keys():
+            self.backup_status = json.loads(self.session.get(confluence_backup_status).text)
+            print('Current status: {progress}; {description}'.format(
+                progress=self.backup_status['alternativePercentage'],
+                description=self.backup_status['currentStatus']))
+            logging.debug('Current Confluence backup status: {progress}; {description}'.format(
+                progress=self.backup_status['alternativePercentage'],
+                description=self.backup_status['currentStatus']))
+            logging.info('Waiting {} seconds for next status check...'.format(self.wait))
             time.sleep(self.wait)
-            while 'fileName' not in self.backup_status.keys():
-                self.backup_status = json.loads(self.session.get(confluence_backup_status).text)
-                print('Current status: {progress}; {description}'.format(
-                    progress=self.backup_status['alternativePercentage'],
-                    description=self.backup_status['currentStatus']))
-                logging.debug('Current Confluence backup status: {progress}; {description}'.format(
-                    progress=self.backup_status['alternativePercentage'],
-                    description=self.backup_status['currentStatus']))
-                logging.info('Waiting {} seconds for next status check...'.format(self.wait))
-                time.sleep(self.wait)
-            return 'https://{url}/wiki/download/{file_name}'.format(
-                url=self.config['HOST_URL'], file_name=self.backup_status['fileName'])
+        return 'https://{url}/wiki/download/{file_name}'.format(
+            url=self.config['HOST_URL'], file_name=self.backup_status['fileName'])
 
     def create_jira_backup(self):
         backup = retry_with_exponential_backoff(lambda: self.session.post(self.start_jira_backup, data=json.dumps(self.payload)))
-        if backup.status_code != 200:
-            logging.debug('Failed to create Jira backup with status code {}: {}'.format(backup.status_code, backup.text))
-            raise Exception(backup, backup.status_code, backup.text)
-        else:
-            task_id = json.loads(backup.text)['taskId']
-            logging.debug('Jira backup task started with taskId={}'.format(task_id))
-            print('Jira backup process successfully started: taskId={}'.format(task_id))
-            jira_backup_status = 'https://{jira_host}/rest/backup/1/export/getProgress?taskId={task_id}'.format(
-                jira_host=self.config['HOST_URL'], task_id=task_id)
+        task_id = json.loads(backup.text)['taskId']
+        logging.debug('Jira backup task started with taskId={}'.format(task_id))
+        print('Jira backup process successfully started: taskId={}'.format(task_id))
+        jira_backup_status = 'https://{jira_host}/rest/backup/1/export/getProgress?taskId={task_id}'.format(
+            jira_host=self.config['HOST_URL'], task_id=task_id)
+        time.sleep(self.wait)
+        while 'result' not in self.backup_status.keys():
+            self.backup_status = json.loads(self.session.get(jira_backup_status).text)
+            print('Current status: {status} {progress}; {description}'.format(
+                status=self.backup_status['status'],
+                progress=self.backup_status['progress'],
+                description=self.backup_status['description']))
+            logging.debug('Current Jira backup status: {status} {progress}; {description}'.format(
+                status=self.backup_status['status'],
+                progress=self.backup_status['progress'],
+                description=self.backup_status['description']))
+            logging.info('Waiting {} seconds for next status check...'.format(self.wait))
             time.sleep(self.wait)
-            while 'result' not in self.backup_status.keys():
-                self.backup_status = json.loads(self.session.get(jira_backup_status).text)
-                print('Current status: {status} {progress}; {description}'.format(
-                    status=self.backup_status['status'],
-                    progress=self.backup_status['progress'],
-                    description=self.backup_status['description']))
-                logging.debug('Current Jira backup status: {status} {progress}; {description}'.format(
-                    status=self.backup_status['status'],
-                    progress=self.backup_status['progress'],
-                    description=self.backup_status['description']))
-                logging.info('Waiting {} seconds for next status check...'.format(self.wait))
-                time.sleep(self.wait)
-            return '{prefix}/{result_id}'.format(
-                prefix='https://' + self.config['HOST_URL'] + '/plugins/servlet', result_id=self.backup_status['result'])
+        return '{prefix}/{result_id}'.format(
+            prefix='https://' + self.config['HOST_URL'] + '/plugins/servlet', result_id=self.backup_status['result'])
 
     def download_file(self, url, local_filename):
         print('Downloading file from URL: {}'.format(url))
@@ -230,11 +223,11 @@ class Atlassian:
             )
             logging.debug('Successfully obtained blob client for Azure container blob: {},{}'.format(container_name, blob_name))
             
-            blob_client.upload_blob(
+            retry_with_exponential_backoff(lambda: blob_client.upload_blob(
                 r.raw,
                 content_type=r.headers.get('content-type', 'application/zip'),
                 overwrite=True
-            )
+            ))
             logging.info('Successfully uploaded backup blob {} to Azure storage container: {}'.format(blob_name, container_name))
         else:
             logging.error('Failed to stream backup to azure, status code: {}'.format(r.status_code))
