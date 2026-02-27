@@ -68,7 +68,7 @@ class Atlassian:
         self.wait = 60
 
     def stream_to_azure(self, url, remote_filename):
-        print(f'Streaming Backup {remote_filename} to Azure Blob Storage')
+        logging.info(f'Streaming Backup {remote_filename} to Azure Blob Storage')
         logging.debug('Azure upload configuration: {}'.format(self.config['UPLOAD_TO_AZURE']))
         
         if self.config['UPLOAD_TO_AZURE']['AZURE_CONNECTION_STRING']:
@@ -90,30 +90,31 @@ class Atlassian:
         
         container_name = self.config['UPLOAD_TO_AZURE']['AZURE_CONTAINER']
         logging.debug('Using Azure container: {}'.format(container_name))
-        
-        r = self.session.get(url, stream=True)
-        if r.status_code == 200:
-            logging.debug('Successfully initiated download stream from URL')
-            blob_name = "{azure_dir}{filename}".format(
-                azure_dir=self.config['UPLOAD_TO_AZURE']['AZURE_DIR'],
-                filename=remote_filename
-            )
-            
-            blob_client = blob_service_client.get_blob_client(
-                container=container_name,
-                blob=blob_name
-            )
-            logging.debug('Successfully obtained blob client for Azure container blob: {},{}'.format(container_name, blob_name))
-            
+
+        blob_name = f"{self.config['UPLOAD_TO_AZURE']['AZURE_DIR']}{remote_filename}"
+        blob_client = blob_service_client.get_blob_client(container=container_name, blob=blob_name)
+
+        def do_upload():
+            r = self.session.get(url, stream=True, timeout=60)
+            r.raise_for_status()
+
+            content_length = int(r.headers.get('Content-Length', 0)) or None
+            chunk_size = 4 * 1024 * 1024  # 4 MB
+
+            def body():
+                for chunk in r.iter_content(chunk_size=chunk_size):
+                    if chunk:
+                        yield chunk
+
             blob_client.upload_blob(
-                r.raw,
+                data=body(),
+                overwrite=True,
+                length=content_length,
                 content_type=r.headers.get('content-type', 'application/zip'),
-                overwrite=True
             )
-            logging.info('Successfully uploaded backup blob {} to Azure storage container: {}'.format(blob_name, container_name))
-        else:
-            logging.error('Failed to stream backup to azure, status code: {}'.format(r.status_code))
-            raise Exception('Unexpected response from URL')
+
+        retry_with_exponential_backoff(do_upload, max_retries=10)
+        logging.info(f'Successfully uploaded backup blob {blob_name} to Azure storage container: {container_name}')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
