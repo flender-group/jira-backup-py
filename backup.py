@@ -17,6 +17,8 @@ from azure.identity import DefaultAzureCredential, ManagedIdentityCredential
 from azure.keyvault.secrets import SecretClient
 from azure.core.exceptions import AzureError
 
+logging = get_logger(__name__)
+
 def read_config(path=''):
     if path == '':
         path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.yaml')
@@ -35,26 +37,25 @@ def get_secret_from_keyvault(kv_url, secret_name='api-token'):
     try:
         secret_client = SecretClient(vault_url=kv_url, credential=az_login())
         secret = secret_client.get_secret(secret_name)
-        logging.info(f"Successfully retrieved secret '{secret_name}' from KeyVault")
         return secret.value
     except AzureError as e:
-        logging.error(f"Error retrieving secret from KeyVault: {e}")
-        sys.exit(1)
+        raise AzureError(f"Error retrieving secret '{secret_name}' from KeyVault: {e}") from e
 
 def retry_with_exponential_backoff(func, delay=300, max_retries=5, backoff_factor=2):
     for attempt in range(max_retries):
         try:
             response = func()
-            response.raise_for_status()
+            if response is not None:
+                response.raise_for_status()
             return response
         except Exception as e:
-            logging.warning(f"Attempt {attempt + 1} failed with error: {e.with_traceback(None)}")
+            logging.warning("Attempt %d failed with error: %s", attempt + 1, e, exc_info=True)
             if attempt < max_retries - 1:
-                logging.info(f"Retrying in {delay} seconds...")
+                logging.info("Retrying in %s seconds...", delay)
                 time.sleep(delay)
                 delay *= backoff_factor
             else:
-                logging.error(f"Max retries reached. Operation failed. Error: {e.with_traceback(None)}")
+                logging.error("Max retries reached. Operation failed. Error: %s", e, exc_info=True)
                 sys.exit(1)
 
 class Atlassian:
@@ -79,10 +80,8 @@ class Atlassian:
             print('Current status: {progress}; {description}'.format(
                 progress=self.backup_status['alternativePercentage'],
                 description=self.backup_status['currentStatus']))
-            logging.debug('Current Confluence backup status: {progress}; {description}'.format(
-                progress=self.backup_status['alternativePercentage'],
-                description=self.backup_status['currentStatus']))
-            logging.info('Waiting {} seconds for next status check...'.format(self.wait))
+            logging.info("Current Confluence backup status: %s; %s", self.backup_status['alternativePercentage'], self.backup_status['currentStatus'])
+            logging.info("Waiting %s seconds for next status check...", self.wait)
             time.sleep(self.wait)
         return 'https://{url}/wiki/download/{file_name}'.format(
             url=self.config['HOST_URL'], file_name=self.backup_status['fileName'])
@@ -90,7 +89,7 @@ class Atlassian:
     def create_jira_backup(self):
         backup = retry_with_exponential_backoff(lambda: self.session.post(self.start_jira_backup, data=json.dumps(self.payload)))
         task_id = json.loads(backup.text)['taskId']
-        logging.debug('Jira backup task started with taskId={}'.format(task_id))
+        logging.info("Jira backup task started with taskId=%s", task_id)
         print('Jira backup process successfully started: taskId={}'.format(task_id))
         jira_backup_status = 'https://{jira_host}/rest/backup/1/export/getProgress?taskId={task_id}'.format(
             jira_host=self.config['HOST_URL'], task_id=task_id)
@@ -101,11 +100,8 @@ class Atlassian:
                 status=self.backup_status['status'],
                 progress=self.backup_status['progress'],
                 description=self.backup_status['description']))
-            logging.debug('Current Jira backup status: {status} {progress}; {description}'.format(
-                status=self.backup_status['status'],
-                progress=self.backup_status['progress'],
-                description=self.backup_status['description']))
-            logging.info('Waiting {} seconds for next status check...'.format(self.wait))
+            logging.info("Current Jira backup status: %s %s; %s", self.backup_status['status'], self.backup_status['progress'], self.backup_status['description'])
+            logging.info("Waiting %s seconds for next status check...", self.wait)
             time.sleep(self.wait)
         return '{prefix}/{result_id}'.format(
             prefix='https://' + self.config['HOST_URL'] + '/plugins/servlet', result_id=self.backup_status['result'])
@@ -186,8 +182,8 @@ class Atlassian:
             blob.upload_from_file(r.raw, content_type=blob.content_type)
 
     def stream_to_azure(self, url, remote_filename):
-        logging.info(f'Streaming Backup {remote_filename} to Azure Blob Storage')
-        logging.debug('Azure upload configuration: {}'.format(self.config['UPLOAD_TO_AZURE']))
+        logging.info('Streaming Backup %s to Azure Blob Storage', remote_filename)
+        logging.debug("Azure upload configuration: %s", self.config['UPLOAD_TO_AZURE'])
         
         if self.config['UPLOAD_TO_AZURE']['AZURE_CONNECTION_STRING']:
             blob_service_client = BlobServiceClient.from_connection_string(
@@ -207,32 +203,43 @@ class Atlassian:
             raise Exception('Unsupported authentication configuration')
         
         container_name = self.config['UPLOAD_TO_AZURE']['AZURE_CONTAINER']
-        logging.debug('Using Azure container: {}'.format(container_name))
+        logging.debug('Using Azure container: %s', container_name)
         
-        r = self.session.get(url, stream=True)
-        if r.status_code == 200:
-            logging.debug('Successfully initiated download stream from URL')
-            blob_name = "{azure_dir}{filename}".format(
-                azure_dir=self.config['UPLOAD_TO_AZURE']['AZURE_DIR'],
-                filename=remote_filename
-            )
-            
-            blob_client = blob_service_client.get_blob_client(
-                container=container_name,
-                blob=blob_name
-            )
-            logging.debug('Successfully obtained blob client for Azure container blob: {},{}'.format(container_name, blob_name))
-            
-            retry_with_exponential_backoff(lambda: blob_client.upload_blob(
-                r.raw,
-                content_type=r.headers.get('content-type', 'application/zip'),
-                overwrite=True
-            ))
-            logging.info('Successfully uploaded backup blob {} to Azure storage container: {}'.format(blob_name, container_name))
-        else:
-            logging.error('Failed to stream backup to azure, status code: {}'.format(r.status_code))
-            raise Exception('Unexpected response from URL')
+        blob_name = f"{self.config['UPLOAD_TO_AZURE']['AZURE_DIR']}{remote_filename}"
+        blob_client = blob_service_client.get_blob_client(container=container_name, blob=blob_name)
 
+        def do_upload():
+            r = self.session.get(url, stream=True, timeout=60)
+            r.raise_for_status()
+
+            content_length = int(r.headers.get('Content-Length', 0)) or None
+            chunk_size = 4 * 1024 * 1024  # 4 MB
+            uploaded = 0
+
+            def body():
+                nonlocal uploaded
+                for chunk in r.iter_content(chunk_size=chunk_size):
+                    if not chunk:
+                        continue
+                    uploaded += len(chunk)
+                    if content_length:
+                        pct = uploaded * 100.0 / content_length
+                        logging.info(
+                            "Uploaded %d/%d bytes (%.2f%%)...", uploaded, content_length, pct
+                        )
+                    else:
+                        logging.info("Uploaded %d bytes so far...", uploaded)
+                    yield chunk
+
+            blob_client.upload_blob(
+                data=body(),
+                overwrite=True,
+                length=content_length,
+                content_type=r.headers.get('content-type', 'application/zip'),
+            )
+
+        retry_with_exponential_backoff(do_upload, max_retries=10)
+        logging.info('Successfully uploaded backup blob %s to Azure storage container: %s', blob_name, container_name)
 
 def setup_scheduled_task(frequency_days=4, time_hour=10, time_minute=0, service_type='jira'):
     script_path = os.path.abspath(__file__)
@@ -364,15 +371,15 @@ if __name__ == '__main__':
                 service_type=args.schedule_service
             )
             print("Scheduled task setup completed")
-            exit(0)
+            sys.exit(0)
         except ValueError as e:
-            logging.error(f"Invalid time format: {e}")
+            logging.error("Invalid time format: %s", e)
             print(f"Error: Invalid time format. Use HH:MM format (e.g., 10:30)")
-            exit(1)
+            sys.exit(1)
         except Exception as e:
-            logging.error(f"Error setting up scheduled task: {e}")
+            logging.error("Error setting up scheduled task: %s", e)
             print(f"Error setting up scheduled task: {e}")
-            exit(1)
+            sys.exit(1)
     
     config = read_config(args.config_file)
 
@@ -380,11 +387,11 @@ if __name__ == '__main__':
         try:
             api_token = get_secret_from_keyvault(args.kv_url, args.kv_secret_name)
             config['API_TOKEN'] = api_token
-            logging.debug('Retrieved API token from KeyVault and set as environment variable')
-        except Exception as e:
-            logging.error(f"Failed to retrieve API token from KeyVault: {e}")
+            logging.debug('Retrieved API token from KeyVault and updated config')
+        except AzureError as e:
+            logging.error("Failed to retrieve API token from KeyVault: %s", e)
             print(f"Error: Failed to retrieve API token from KeyVault: {e}")
-            exit(1) 
+            sys.exit(1) 
 
     if config['HOST_URL'] == 'something.atlassian.net':
         logging.error('Configuration file not set up properly')
@@ -393,35 +400,35 @@ if __name__ == '__main__':
     atlass = Atlassian(config)
     if not args.backup_url:
         logging.debug('No backup URL provided, initiating backup process')
-        print('Starting backup; include attachments: {}'.format(config['INCLUDE_ATTACHMENTS']))
+        logging.info('Starting backup; include attachments: %s', config['INCLUDE_ATTACHMENTS'])
         if args.confluence: 
             backup_url = atlass.create_confluence_backup()
-            logging.debug('Confluence backup URL obtained: {}'.format(backup_url))
+            logging.debug('Confluence backup URL obtained: %s', backup_url)
         else: 
             backup_url = atlass.create_jira_backup()
-            logging.debug('Jira backup URL obtained: {}'.format(backup_url))
+            logging.debug('Jira backup URL obtained: %s', backup_url)
     else:
         backup_url = args.backup_url
 
-    print('Backup URL: {}'.format(backup_url))
+    logging.info('Backup URL: %s', backup_url)
     file_name = '{timestemp}_{uuid}.zip'.format(
         timestemp=time.strftime('%d%m%Y_%H%M'), uuid=backup_url.split('/')[-1].replace('?fileId=', ''))
 
     if config['DOWNLOAD_LOCALLY'] == 'true':
         atlass.download_file(backup_url, file_name)
-        logging.debug('Downloaded backup file locally: {}'.format(file_name))
+        logging.debug('Downloaded backup file locally: %s', file_name)
 
     if 'UPLOAD_TO_S3' in config and config['UPLOAD_TO_S3'].get('S3_BUCKET', '') != '':
         atlass.stream_to_s3(backup_url, file_name)
-        logging.debug('Uploaded to S3 bucket: {}'.format(config['UPLOAD_TO_S3'].get('S3_BUCKET', '')))
+        logging.debug("Uploaded to S3 bucket: %s", config['UPLOAD_TO_S3'].get('S3_BUCKET', ''))
     
     if 'UPLOAD_TO_GCP' in config and config['UPLOAD_TO_GCP'].get('GCS_BUCKET', '') != '':
         atlass.stream_to_gcs(backup_url, file_name)
-        logging.debug('Uploaded to GCS bucket: {}'.format(config['UPLOAD_TO_GCP'].get('GCS_BUCKET', '')))
+        logging.debug("Uploaded to GCS bucket: %s", config['UPLOAD_TO_GCP'].get('GCS_BUCKET', ''))
     
     if 'UPLOAD_TO_AZURE' in config and config['UPLOAD_TO_AZURE'].get('AZURE_CONTAINER', '') != '':
         atlass.stream_to_azure(backup_url, file_name)
         if args.confluence:
-            logging.debug('Successfully uploaded Confluence backup to Azure container: {}'.format(config['UPLOAD_TO_AZURE'].get('AZURE_CONTAINER', '')))
+            logging.debug("Successfully uploaded Confluence backup to Azure container: %s", config['UPLOAD_TO_AZURE'].get('AZURE_CONTAINER', ''))
         elif args.jira:
-            logging.debug('Successfully uploaded Jira backup to Azure container: {}'.format(config['UPLOAD_TO_AZURE'].get('AZURE_CONTAINER', '')))
+            logging.debug("Successfully uploaded Jira backup to Azure container: %s", config['UPLOAD_TO_AZURE'].get('AZURE_CONTAINER', ''))
