@@ -100,11 +100,22 @@ class Atlassian:
 
             content_length = int(r.headers.get('Content-Length', 0)) or None
             chunk_size = 4 * 1024 * 1024  # 4 MB
+            uploaded = 0
 
             def body():
+                nonlocal uploaded
                 for chunk in r.iter_content(chunk_size=chunk_size):
-                    if chunk:
-                        yield chunk
+                    if not chunk:
+                        continue
+                    uploaded += len(chunk)
+                    if content_length:
+                        pct = uploaded * 100.0 / content_length
+                        logging.info(
+                            f"Uploaded {uploaded}/{content_length} bytes ({pct:.2f}%)..."
+                        )
+                    else:
+                        logging.info(f"Uploaded {uploaded} bytes so far...")
+                    yield chunk
 
             blob_client.upload_blob(
                 data=body(),
