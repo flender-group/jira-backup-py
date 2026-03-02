@@ -45,7 +45,7 @@ def retry_with_exponential_backoff(func, delay=300, max_retries=5, backoff_facto
     for attempt in range(max_retries):
         try:
             response = func()
-            if response is not None:
+            if response.get('raise_for_status'):
                 response.raise_for_status()
             return response
         except Exception as e:
@@ -207,6 +207,7 @@ class Atlassian:
         
         blob_name = f"{self.config['UPLOAD_TO_AZURE']['AZURE_DIR']}{remote_filename}"
         blob_client = blob_service_client.get_blob_client(container=container_name, blob=blob_name)
+        expiry_time = (time.time() + 7 * 24 * 60 * 60)  # Set expiry time to 1 week from now
 
         def do_upload():
             r = self.session.get(url, stream=True, timeout=60)
@@ -236,9 +237,13 @@ class Atlassian:
                 overwrite=True,
                 length=content_length,
                 content_type=r.headers.get('content-type', 'application/zip'),
+                immutability_policy={'expiry_time': expiry_time, 'policy_mode': 'Unlocked'}
             )
 
         retry_with_exponential_backoff(do_upload, max_retries=10)
+        retry_with_exponential_backoff(lambda:
+            blob_client.set_immutability_policy(policy={'expiry_time': expiry_time}, policy_mode='Locked')
+        )
         logging.info('Successfully uploaded backup blob %s to Azure storage container: %s', blob_name, container_name)
 
 def setup_scheduled_task(frequency_days=4, time_hour=10, time_minute=0, service_type='jira'):
