@@ -49,13 +49,13 @@ def retry_with_exponential_backoff(func, delay=300, max_retries=5, backoff_facto
                 response.raise_for_status()
             return response
         except Exception as e:
-            logging.warning("Attempt %d failed with error: %s", attempt + 1, e)
+            logging.warning("Attempt %d failed with error: %s", attempt + 1, {e.with_traceback(None)})
             if attempt < max_retries - 1:
                 logging.info("Retrying in %s seconds...", delay)
                 time.sleep(delay)
                 delay *= backoff_factor
             else:
-                logging.error("Max retries reached. Operation failed. Error: %s", e)
+                logging.error("Max retries reached. Operation failed. Error: %s", {e.with_traceback(None)})
                 sys.exit(1)
 
 class Atlassian:
@@ -237,14 +237,10 @@ class Atlassian:
                 data=body(),
                 overwrite=True,
                 length=content_length,
-                content_type=r.headers.get('content-type', 'application/zip'),
-                immutability_policy={'expiry_time': expiry_time, 'policy_mode': 'Unlocked'}
+                content_type=r.headers.get('content-type', 'application/zip')
             )
 
-        retry_with_exponential_backoff(do_upload, max_retries=10)
-        retry_with_exponential_backoff(lambda:
-            blob_client.set_immutability_policy(policy={'expiry_time': expiry_time}, policy_mode='Locked')
-        )
+        retry_with_exponential_backoff(do_upload, max_retries=5)
         logging.info('Successfully uploaded backup blob %s to Azure storage container: %s', blob_name, container_name)
 
 def setup_scheduled_task(frequency_days=4, time_hour=10, time_minute=0, service_type='jira'):
