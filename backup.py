@@ -45,17 +45,17 @@ def retry_with_exponential_backoff(func, delay=300, max_retries=5, backoff_facto
     for attempt in range(max_retries):
         try:
             response = func()
-            if response.get('raise_for_status'):
+            if response is not None and callable(getattr(response, 'raise_for_status', None)):
                 response.raise_for_status()
             return response
         except Exception as e:
-            logging.warning("Attempt %d failed with error: %s", attempt + 1, e, exc_info=True)
+            logging.warning("Attempt %d failed with error: %s", attempt + 1, e)
             if attempt < max_retries - 1:
                 logging.info("Retrying in %s seconds...", delay)
                 time.sleep(delay)
                 delay *= backoff_factor
             else:
-                logging.error("Max retries reached. Operation failed. Error: %s", e, exc_info=True)
+                logging.error("Max retries reached. Operation failed. Error: %s", e)
                 sys.exit(1)
 
 class Atlassian:
@@ -233,7 +233,7 @@ class Atlassian:
                         logging.info("Uploaded %d bytes so far...", uploaded)
                     yield chunk
 
-            blob_client.upload_blob(
+            return blob_client.upload_blob(
                 data=body(),
                 overwrite=True,
                 length=content_length,
