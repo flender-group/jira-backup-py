@@ -214,6 +214,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-C', type=str, dest='config_file', default='', help='path to config file')
     parser.add_argument('-d', type=str, dest='backup_url', default='', help='atlassian backup url')
+    parser.add_argument('-l', type=str, dest='local_file', default='',  help='local backup file name in BACKUP_DIR')
     parser.add_argument('-c', action='store_true', dest='confluence', help='activate confluence backup')
     parser.add_argument('-j', action='store_true', dest='jira', help='activate jira backup')
     parser.add_argument('--kv-url', type=str, help='KeyVault URL (Full http URL) for API Token Secret')
@@ -256,12 +257,16 @@ if __name__ == '__main__':
         backup_url = args.backup_url
 
     logging.info('Backup URL: %s', backup_url)
-    file_name = '{timestemp}_{uuid}.zip'.format(
+    if not args.local_file:
+        file_name = '{timestemp}_{uuid}.zip'.format(
         timestemp=time.strftime('%d%m%Y_%H%M'), uuid=backup_url.split('/')[-1].replace('?fileId=', ''))
-    full_path = os.path.join(BACKUP_DIR, file_name)
-
-    atlass.download_file(backup_url, file_name)
-    logging.debug('Downloaded backup file locally: %s', file_name)
+        full_path = os.path.join(BACKUP_DIR, file_name)
+        atlass.download_file(backup_url, file_name)
+        logging.debug('Downloaded backup file locally: %s', file_name)
+    else:
+        file_name = args.local_file
+        full_path = os.path.join(BACKUP_DIR, file_name)
+        logging.debug('Using provided local backup file: %s', full_path)
 
     if 'UPLOAD_TO_AZURE' in config and config['UPLOAD_TO_AZURE'].get('AZURE_CONTAINER', '') != '':
         atlass.upload_to_azure(file_name, full_path)
