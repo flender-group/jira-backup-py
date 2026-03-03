@@ -207,8 +207,6 @@ class Atlassian:
         
         blob_name = f"{self.config['UPLOAD_TO_AZURE']['AZURE_DIR']}{remote_filename}"
         blob_client = blob_service_client.get_blob_client(container=container_name, blob=blob_name)
-        expiry_days = self.config['UPLOAD_TO_AZURE'].get('AZURE_BLOB_EXPIRY_DAYS', 14)
-        expiry_time = (time.time() + expiry_days * 24 * 60 * 60)
 
         def do_upload():
             r = self.session.get(url, stream=True, timeout=60)

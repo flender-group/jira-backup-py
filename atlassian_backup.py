@@ -132,7 +132,8 @@ class Atlassian:
                 capture_output=True,
                 text=True                    # decodes bytes to str
             )
-            # wget writes progress to stderr
+            if result.stdout:
+                logging.debug('wget output: %s', result.stdout.strip())
             if result.stderr:
                 logging.debug('wget output: %s', result.stderr.strip())
 
