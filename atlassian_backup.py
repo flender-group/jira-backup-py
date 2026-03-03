@@ -54,6 +54,7 @@ class Atlassian:
         retries = Retry(
             total=5,
             backoff_factor=300,
+            allowed_methods=frozenset({'GET', 'POST'}),
             status_forcelist=[412, 429, 500, 502, 503, 504],
             raise_on_status=True
         )
@@ -67,7 +68,7 @@ class Atlassian:
         self.wait = 60
 
     def create_confluence_backup(self):
-        backup = retry_with_exponential_backoff(lambda: self.session.post(self.start_confluence_backup, data=json.dumps(self.payload)))
+        self.session.post(self.start_confluence_backup, data=json.dumps(self.payload))
         logging.info('Confluence backup process successfully started')
         confluence_backup_status = 'https://{}/wiki/rest/obm/1.0/getprogress'.format(self.config['HOST_URL'])
         time.sleep(self.wait)
@@ -83,7 +84,7 @@ class Atlassian:
             url=self.config['HOST_URL'], file_name=self.backup_status['fileName'])
 
     def create_jira_backup(self):
-        backup = retry_with_exponential_backoff(lambda: self.session.post(self.start_jira_backup, data=json.dumps(self.payload)))
+        backup = self.session.post(self.start_jira_backup, data=json.dumps(self.payload))
         task_id = json.loads(backup.text)['taskId']
         logging.info("Jira backup task started with taskId=%s", task_id)
         print('Jira backup process successfully started: taskId={}'.format(task_id))
