@@ -1,10 +1,11 @@
 import json
-import yaml
-import time
-import os
-import argparse
-import requests
 import sys
+import subprocess
+import os
+import time
+import argparse
+import yaml
+import requests
 from app_logger import get_logger
 from urllib3.util import Retry
 from azure.storage.blob import BlobServiceClient
@@ -105,32 +106,48 @@ class Atlassian:
 
     def download_file(self, url, local_filename):
         logging.info('Downloading file from URL: %s', url)
-        r = self.session.get(url, stream=True)
-        if not os.path.ismount(BACKUP_DIR):
-            logging.error('Backup directory %s is a mount point, cannot save backup file', BACKUP_DIR)
-            raise OSError(f"Backup directory {BACKUP_DIR} is a mount point, cannot save backup file")
-        file_path = os.path.join(BACKUP_DIR, local_filename)
-        content_length = int(r.headers.get('Content-Length', 0)) or None
-        chunk_size = 4 * 1024 * 1024
-        downloaded = 0
-        with open(file_path, 'wb') as file_:
-            for chunk in r.iter_content(chunk_size=chunk_size):
-                if chunk:
-                    file_.write(chunk)
-                downloaded += len(chunk)
-                if content_length:
-                    pct = downloaded * 100.0 / content_length
-                    logging.info(
-                        'Downloaded %d/%d bytes (%.2f%%) for file %s',
-                        downloaded, content_length, pct, local_filename
-                    )
-                else:
-                    logging.info(
-                        'Downloaded %d bytes so far for file %s',
-                        downloaded, local_filename
-                    )
 
-        logging.info('File downloaded to: %s', file_path)
+        if not os.path.ismount(BACKUP_DIR):
+            logging.error('Backup directory %s is not a mount point, cannot save backup file', BACKUP_DIR)
+            raise OSError(f"Backup directory {BACKUP_DIR} is not a mount point, cannot save backup file")
+
+        file_path = os.path.join(BACKUP_DIR, local_filename)
+
+        cmd = [
+            'wget',
+            '--progress=dot:mega',
+            '--auth-no-challenge',
+            f'--user={self.session.auth[0]}',
+            f'--password={self.session.auth[1]}',
+            f'--output-document={file_path}',
+            url
+        ]
+
+        logging.debug('Running wget command for file: %s', file_path)
+
+        try:
+            result = subprocess.run(
+                cmd,
+                check=True,
+                capture_output=True,
+                text=True                    # decodes bytes to str
+            )
+            # wget writes progress to stderr
+            if result.stderr:
+                logging.debug('wget output: %s', result.stderr.strip())
+
+            logging.info('Download complete. File saved to: %s', file_path)
+
+        except subprocess.CalledProcessError as e:
+            logging.error('wget failed with exit code %d: %s', e.returncode, e.stderr.strip())
+            # remove partial file if download failed
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                logging.warning('Removed incomplete file: %s', file_path)
+            raise
+        except FileNotFoundError:
+            logging.error('wget is not installed or not found in PATH')
+            raise
 
     def upload_to_azure(self, blob_name, local_filename):
         logging.info('Uploading Backup %s to Azure Blob Storage', blob_name)
