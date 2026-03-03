@@ -105,7 +105,10 @@ class Atlassian:
     def download_file(self, url, local_filename):
         logging.info('Downloading file from URL: %s', url)
         r = self.session.get(url, stream=True)
-        file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'backups', local_filename)
+        if not os.path.ismount(BACKUP_DIR):
+            logging.error('Backup directory %s is a mount point, cannot save backup file', BACKUP_DIR)
+            raise OSError(f"Backup directory {BACKUP_DIR} is a mount point, cannot save backup file")
+        file_path = os.path.join(BACKUP_DIR, local_filename)
         with open(file_path, 'wb') as file_:
             for chunk in r.iter_content(chunk_size=1024):
                 if chunk:
@@ -162,7 +165,7 @@ class Atlassian:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-C', type=str, dest='config_file', default='', help='path to config file')
-    parser.add_argument('-d', type=str, dest='backup_url', default='', help='URL to download into the storage configuration')
+    parser.add_argument('-d', type=str, dest='backup_url', default='', help='atlassian backup url')
     parser.add_argument('-c', action='store_true', dest='confluence', help='activate confluence backup')
     parser.add_argument('-j', action='store_true', dest='jira', help='activate jira backup')
     parser.add_argument('--kv-url', type=str, help='KeyVault URL (Full http URL) for API Token Secret')
