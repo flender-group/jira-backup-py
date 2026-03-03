@@ -131,8 +131,8 @@ class Atlassian:
 
         logging.info('File downloaded to: %s', file_path)
 
-    def upload_to_azure(self, local_filename, remote_filename):
-        logging.info('Uploading Backup %s to Azure Blob Storage', local_filename)
+    def upload_to_azure(self, blob_name, local_filename):
+        logging.info('Uploading Backup %s to Azure Blob Storage', blob_name)
         logging.debug("Azure upload configuration: %s", self.config['UPLOAD_TO_AZURE'])
         
         if self.config['UPLOAD_TO_AZURE']['AZURE_CONNECTION_STRING']:
@@ -155,7 +155,7 @@ class Atlassian:
         container_name = self.config['UPLOAD_TO_AZURE']['AZURE_CONTAINER']
         logging.debug('Using Azure container: %s', container_name)
         
-        blob_name = f"{self.config['UPLOAD_TO_AZURE']['AZURE_DIR']}{remote_filename}"
+        blob_name = f"{self.config['UPLOAD_TO_AZURE']['AZURE_DIR']}{blob_name}"
         blob_client = blob_service_client.get_blob_client(container=container_name, blob=blob_name)
 
         block_list = []
@@ -232,7 +232,7 @@ if __name__ == '__main__':
     logging.debug('Downloaded backup file locally: %s', file_name)
 
     if 'UPLOAD_TO_AZURE' in config and config['UPLOAD_TO_AZURE'].get('AZURE_CONTAINER', '') != '':
-        atlass.upload_to_azure(backup_url, full_path)
+        atlass.upload_to_azure(file_name, full_path)
         if args.confluence:
             logging.debug("Successfully uploaded Confluence backup to Azure container: %s", config['UPLOAD_TO_AZURE'].get('AZURE_CONTAINER', ''))
         elif args.jira:
