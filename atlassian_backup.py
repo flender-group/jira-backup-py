@@ -14,7 +14,7 @@ from azure.core.exceptions import AzureError
 
 logging = get_logger(__name__)
 # Default backup directory
-BACKUP_DIR = "/backup"
+BACKUP_DIR = "/backups"
 
 def read_config(path=''):
     if path == '':
