@@ -244,8 +244,8 @@ if __name__ == '__main__':
         raise ValueError('You forgot to edit config.yaml or to run the backup script with "-w" flag')
 
     atlass = Atlassian(config)
-    if not args.backup_url:
-        logging.debug('No backup URL provided, initiating backup process')
+    if not args.backup_url and not args.local_file:
+        logging.debug('No backup URL or local file provided, initiating backup process')
         logging.info('Starting backup; include attachments: %s', config['INCLUDE_ATTACHMENTS'])
         if args.confluence: 
             backup_url = atlass.create_confluence_backup()
