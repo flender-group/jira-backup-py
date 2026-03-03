@@ -109,10 +109,26 @@ class Atlassian:
             logging.error('Backup directory %s is a mount point, cannot save backup file', BACKUP_DIR)
             raise OSError(f"Backup directory {BACKUP_DIR} is a mount point, cannot save backup file")
         file_path = os.path.join(BACKUP_DIR, local_filename)
+        content_length = int(r.headers.get('Content-Length', 0)) or None
+        chunk_size = 4 * 1024 * 1024
+        downloaded = 0
         with open(file_path, 'wb') as file_:
-            for chunk in r.iter_content(chunk_size=1024):
+            for chunk in r.iter_content(chunk_size=chunk_size):
                 if chunk:
                     file_.write(chunk)
+                downloaded += len(chunk)
+                if content_length:
+                    pct = downloaded * 100.0 / content_length
+                    logging.info(
+                        'Downloaded %d/%d bytes (%.2f%%) for file %s',
+                        downloaded, content_length, pct, local_filename
+                    )
+                else:
+                    logging.info(
+                        'Downloaded %d bytes so far for file %s',
+                        downloaded, local_filename
+                    )
+
         logging.info('File downloaded to: %s', file_path)
 
     def upload_to_azure(self, local_filename, remote_filename):
