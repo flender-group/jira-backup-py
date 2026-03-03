@@ -54,7 +54,7 @@ class Atlassian:
         retries = Retry(
             total=5,
             backoff_factor=300,
-            status_forcelist=[417, 419, 429, 500, 502, 503, 504],
+            status_forcelist=[412, 429, 500, 502, 503, 504],
             raise_on_status=True
         )
         self.session.mount('https://', requests.adapters.HTTPAdapter(max_retries=retries))
@@ -160,7 +160,8 @@ class Atlassian:
 
         block_list = []
         block_size = 4 * 1024 * 1024  # 4MB chunks
-        
+        uploaded = 0
+        file_size = os.path.getsize(local_filename)
         with open(local_filename, 'rb') as file:
             block_id = 0
             while True:
@@ -171,8 +172,20 @@ class Atlassian:
                 block_id_str = f"{block_id:08d}".encode()
                 blob_client.stage_block(block_id_str, chunk)
                 block_list.append(block_id_str)
-                logging.info('Uploaded block %d for %s', block_id, blob_name)
+                uploaded += len(chunk)
+                if file_size:
+                    pct = uploaded * 100.0 / file_size
+                    logging.info(
+                        'Uploaded block %d: %d/%d bytes (%.2f%%) for %s',
+                        block_id, uploaded, file_size, pct, blob_name
+                    )
+                else:
+                    logging.info(
+                        'Uploaded block %d: %d bytes so far for %s',
+                        block_id, uploaded, blob_name
+                    )
                 block_id += 1
+
         blob_client.commit_block_list(block_list)
         logging.info('Successfully uploaded backup blob %s to Azure storage container: %s', blob_name, container_name)
         remove_local_file(local_filename)
