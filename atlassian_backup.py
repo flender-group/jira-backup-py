@@ -115,7 +115,6 @@ class Atlassian:
 
         cmd = [
             'wget',
-            '--progress=dot:mega',
             '--auth-no-challenge',
             f'--user={self.session.auth[0]}',
             f'--password={self.session.auth[1]}',
@@ -132,12 +131,8 @@ class Atlassian:
                 capture_output=True,
                 text=True                    # decodes bytes to str
             )
-            if result.stdout:
-                logging.debug('wget output: %s', result.stdout.strip())
-            if result.stderr:
-                logging.debug('wget output: %s', result.stderr.strip())
-
-            logging.info('Download complete. File saved to: %s', file_path)
+            if result.returncode == 0:
+                logging.info('Download complete. File saved to: %s', file_path)
 
         except subprocess.CalledProcessError as e:
             logging.error('wget failed with exit code %d: %s', e.returncode, e.stderr.strip())
@@ -179,8 +174,6 @@ class Atlassian:
 
         block_list = []
         block_size = 4 * 1024 * 1024  # 4MB chunks
-        uploaded = 0
-        file_size = os.path.getsize(local_filename)
         with open(local_filename, 'rb') as file:
             block_id = 0
             while True:
@@ -191,18 +184,6 @@ class Atlassian:
                 block_id_str = f"{block_id:08d}".encode()
                 blob_client.stage_block(block_id_str, chunk)
                 block_list.append(block_id_str)
-                uploaded += len(chunk)
-                if file_size:
-                    pct = uploaded * 100.0 / file_size
-                    logging.info(
-                        'Uploaded block %d: %d/%d bytes (%.2f%%) for %s',
-                        block_id, uploaded, file_size, pct, blob_name
-                    )
-                else:
-                    logging.info(
-                        'Uploaded block %d: %d bytes so far for %s',
-                        block_id, uploaded, blob_name
-                    )
                 block_id += 1
 
         blob_client.commit_block_list(block_list)
