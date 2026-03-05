@@ -57,7 +57,8 @@ class Atlassian:
             backoff_factor=300,
             allowed_methods=frozenset({'GET', 'POST'}),
             status_forcelist=[412, 429, 500, 502, 503, 504],
-            raise_on_status=True
+            raise_on_status=True,
+            backoff_max=4800
         )
         self.session.mount('https://', requests.adapters.HTTPAdapter(max_retries=retries))
         self.session.auth = (config['USER_EMAIL'], config['API_TOKEN'])
@@ -69,7 +70,14 @@ class Atlassian:
         self.wait = 60
 
     def create_confluence_backup(self):
-        self.session.post(self.start_confluence_backup, data=json.dumps(self.payload))
+        try:
+            self.session.post(self.start_confluence_backup, data=json.dumps(self.payload))
+        except requests.exceptions.RetryError as e:
+            logging.error('Failed to start Confluence backup, Retry failed: %s', e)
+            sys.exit(1)
+        except requests.exceptions.RequestException as e:
+            logging.error('Failed to start Confluence backup, Request exception: %s', e)
+            sys.exit(1)
         logging.info('Confluence backup process successfully started')
         confluence_backup_status = 'https://{}/wiki/rest/obm/1.0/getprogress'.format(self.config['HOST_URL'])
         time.sleep(self.wait)
@@ -85,10 +93,18 @@ class Atlassian:
             url=self.config['HOST_URL'], file_name=self.backup_status['fileName'])
 
     def create_jira_backup(self):
-        backup = self.session.post(self.start_jira_backup, data=json.dumps(self.payload))
+        try:
+            backup = self.session.post(self.start_jira_backup, data=json.dumps(self.payload))
+        except requests.exceptions.RetryError as e:
+            logging.error('Failed to start Jira backup, Retry failed: %s', e)
+            sys.exit(1)
+        except requests.exceptions.RequestException as e:
+            logging.error('Failed to start Jira backup, Request exception: %s', e)
+            sys.exit(1)
+        
         task_id = json.loads(backup.text)['taskId']
         logging.info("Jira backup task started with taskId=%s", task_id)
-        print('Jira backup process successfully started: taskId={}'.format(task_id))
+        logging.info('Jira backup process successfully started: taskId={}'.format(task_id))
         jira_backup_status = 'https://{jira_host}/rest/backup/1/export/getProgress?taskId={task_id}'.format(
             jira_host=self.config['HOST_URL'], task_id=task_id)
         time.sleep(self.wait)
