@@ -139,7 +139,6 @@ class Atlassian:
         ]
 
         logging.debug('Running wget command for file: %s', file_path)
-
         try:
             result = subprocess.run(
                 cmd,
@@ -152,14 +151,15 @@ class Atlassian:
 
         except subprocess.CalledProcessError as e:
             logging.error('wget failed with exit code %d: %s', e.returncode, e.stderr.strip())
-            # remove partial file if download failed
-            if os.path.exists(file_path):
-                os.remove(file_path)
-                logging.warning('Removed incomplete file: %s', file_path)
-            raise
+            remove_local_file(file_path)
+            sys.exit(1)
         except FileNotFoundError:
             logging.error('wget is not installed or not found in PATH')
-            raise
+            sys.exit(1)
+        except subprocess.SubprocessError as e:
+            logging.error('An error occurred while running wget: %s', e)
+            remove_local_file(file_path)
+            sys.exit(1)
 
     def upload_to_azure(self, blob_name, local_filename):
         logging.info('Uploading Backup %s to Azure Blob Storage', blob_name)
