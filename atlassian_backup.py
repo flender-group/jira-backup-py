@@ -122,6 +122,8 @@ class Atlassian:
 
     def download_file(self, url, local_filename):
         logging.info('Downloading file from URL: %s', url)
+        from collections import deque
+        import threading
 
         if not os.path.ismount(BACKUP_DIR):
             logging.error('Backup directory %s is not a mount point, cannot save backup file', BACKUP_DIR)
@@ -138,28 +140,74 @@ class Atlassian:
             url
         ]
 
-        logging.debug('Running wget command for file: %s', file_path)
+        progress_interval = int(self.config.get('WGET_PROGRESS_LOG_INTERVAL_SECONDS', 300))
+        logging.debug('Running wget command for file: %s (progress log interval=%ss)', file_path, progress_interval)
         try:
-            result = subprocess.run(
+            proc = subprocess.Popen(
                 cmd,
-                check=True,
-                capture_output=True,
-                text=True                    # decodes bytes to str
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1
             )
-            if result.returncode == 0:
-                logging.info('Download complete. File saved to: %s', file_path)
 
-        except subprocess.CalledProcessError as e:
-            logging.error('wget failed with exit code %d: %s', e.returncode, e.stderr.strip())
-            remove_local_file(file_path)
-            sys.exit(1)
-        except FileNotFoundError:
+            stderr_tail = deque(maxlen=100)
+
+            def _consume_stderr(stream, buffer):
+                if stream is None:
+                    return
+                for line in stream:
+                    line = line.strip()
+                    if line:
+                        buffer.append(line)
+
+            stderr_thread = threading.Thread(
+                target=_consume_stderr,
+                args=(proc.stderr, stderr_tail),
+                daemon=True
+            )
+            stderr_thread.start()
+
+            last_logged_size = -1
+            while True:
+                return_code = proc.poll()
+                if return_code is not None:
+                    break
+
+                current_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+                if current_size != last_logged_size:
+                    logging.info('Download in progress: %s (%.2f MB)', file_path, current_size / (1024 * 1024))
+                    last_logged_size = current_size
+                else:
+                    logging.info('Download still running for: %s', file_path)
+
+                time.sleep(progress_interval)
+
+            stderr_thread.join(timeout=5)
+
+            if proc.returncode == 0:
+                final_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+                logging.info('Download complete. File saved to: %s (%.2f MB)', file_path, final_size / (1024 * 1024))
+            else:
+                if stderr_tail:
+                    logging.error('wget failed with exit code %d. Recent stderr: %s', proc.returncode, ' | '.join(stderr_tail))
+                else:
+                    logging.error('wget failed with exit code %d', proc.returncode)
+
+                remove_local_file(file_path)
+                raise RuntimeError(f'wget failed with exit code {proc.returncode}')
+
+        except FileNotFoundError as exc:
             logging.error('wget is not installed or not found in PATH')
-            sys.exit(1)
+            raise RuntimeError('wget is not installed or not found in PATH') from exc
         except subprocess.SubprocessError as e:
             logging.error('An error occurred while running wget: %s', e)
             remove_local_file(file_path)
-            sys.exit(1)
+            raise RuntimeError('wget execution failed') from e
+        except OSError as e:
+            logging.error('OS error during download: %s', e)
+            remove_local_file(file_path)
+            raise RuntimeError('download failed due to OS error') from e
 
     def upload_to_azure(self, blob_name, local_filename):
         logging.info('Uploading Backup %s to Azure Blob Storage', blob_name)
@@ -258,7 +306,11 @@ if __name__ == '__main__':
         file_name = '{timestemp}_{uuid}.zip'.format(
         timestemp=time.strftime('%d%m%Y_%H%M'), uuid=backup_url.split('/')[-1].replace('?fileId=', ''))
         full_path = os.path.join(BACKUP_DIR, file_name)
-        atlass.download_file(backup_url, file_name)
+        try:
+            atlass.download_file(backup_url, file_name)
+        except Exception as e:
+            logging.error('Backup download failed: %s', e)
+            sys.exit(1)
         logging.debug('Downloaded backup file locally: %s', file_name)
     else:
         file_name = args.local_file
